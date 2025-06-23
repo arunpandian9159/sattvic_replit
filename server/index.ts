@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
-import { createRoutes } from './routes.js';
-import { MemStorage } from './storage.js';
+import { createRoutes } from './routes';
+import { MemStorage } from './storage';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
