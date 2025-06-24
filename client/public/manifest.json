@@ -1,0 +1,20 @@
+{
+  "name": "Sattvic Foods - Fresh South Indian Home Delivery",
+  "short_name": "Sattvic Foods",
+  "description": "Authentic South Indian vegetarian meals made with love. Daily, weekly, and monthly plans available with next-day delivery.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAFAFA",
+  "theme_color": "#FF6B35",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["food", "lifestyle"],
+  "lang": "en-IN"
+}

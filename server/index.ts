@@ -20,23 +20,36 @@ async function createServer() {
   app.use(cors());
   app.use(express.json());
 
-  // API routes
-  app.use(createRoutes(storage));
+  // Test route
+  app.get('/test', (req, res) => {
+    res.json({ message: 'Server is working!' });
+  });
 
-  // Serve static assets
+  // Serve static assets first
   app.use('/api/assets', express.static(path.join(__dirname, '../attached_assets')));
 
-  // Create Vite server for frontend in development
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-      root: path.join(__dirname, '../client')
-    });
+  // API routes
+  app.use('/api', createRoutes(storage));
 
-    app.use(vite.ssrFixStacktrace);
-    app.use('/', vite.middlewares);
-  }
+  // Create Vite server for frontend in development
+  // Temporarily disabled to test API separately
+  // if (process.env.NODE_ENV !== 'production') {
+  //   const vite = await createViteServer({
+  //     server: { middlewareMode: true },
+  //     appType: 'spa',
+  //     root: path.join(__dirname, '../client')
+  //   });
+
+  //   app.use(vite.ssrFixStacktrace);
+  //   // Only use Vite middleware for non-API routes
+  //   app.use((req, res, next) => {
+  //     if (req.path.startsWith('/api/') || req.path === '/test') {
+  //       next();
+  //     } else {
+  //       vite.middlewares(req, res, next);
+  //     }
+  //   });
+  // }
 
   app.listen(port, '0.0.0.0', () => {
     console.log(`🚀 Sattvic Foods delivery server running on http://0.0.0.0:${port}`);

@@ -6,7 +6,7 @@ export function createRoutes(storage: IStorage) {
   const router = Router();
 
   // Meal Plans Routes
-  router.get('/api/meal-plans', async (req, res) => {
+  router.get('/meal-plans', async (req, res) => {
     try {
       const mealPlans = await storage.getMealPlans();
       res.json(mealPlans);
@@ -15,7 +15,7 @@ export function createRoutes(storage: IStorage) {
     }
   });
 
-  router.get('/api/meal-plans/:id', async (req: Request, res: Response) => {
+  router.get('/meal-plans/:id', async (req: Request, res: Response) => {
     try {
       const mealPlan = await storage.getMealPlanById(req.params.id);
       if (!mealPlan) {
@@ -27,7 +27,7 @@ export function createRoutes(storage: IStorage) {
     }
   });
 
-  router.post('/api/meal-plans', async (req, res) => {
+  router.post('/meal-plans', async (req, res) => {
     try {
       const validatedData = insertMealPlanSchema.parse(req.body);
       const mealPlan = await storage.createMealPlan(validatedData);
@@ -38,7 +38,7 @@ export function createRoutes(storage: IStorage) {
   });
 
   // Customer Routes
-  router.get('/api/customers', async (req, res) => {
+  router.get('/customers', async (req, res) => {
     try {
       const customers = await storage.getCustomers();
       res.json(customers);
@@ -47,7 +47,7 @@ export function createRoutes(storage: IStorage) {
     }
   });
 
-  router.get('/api/customers/:id', async (req, res) => {
+  router.get('/customers/:id', async (req, res) => {
     try {
       const customer = await storage.getCustomerById(req.params.id);
       if (!customer) {
@@ -59,7 +59,7 @@ export function createRoutes(storage: IStorage) {
     }
   });
 
-  router.post('/api/customers', async (req, res) => {
+  router.post('/customers', async (req, res) => {
     try {
       const validatedData = insertCustomerSchema.parse(req.body);
       
@@ -77,24 +77,24 @@ export function createRoutes(storage: IStorage) {
   });
 
   // Order Routes
-  router.get('/api/orders', async (req, res) => {
+  router.get('/orders', async (req, res) => {
     try {
       const { customerId } = req.query;
-      
+
       let orders;
       if (customerId) {
         orders = await storage.getOrdersByCustomerId(customerId as string);
       } else {
         orders = await storage.getOrders();
       }
-      
+
       res.json(orders);
     } catch (error) {
       res.status(500).json({ error: 'Failed to fetch orders' });
     }
   });
 
-  router.get('/api/orders/:id', async (req, res) => {
+  router.get('/orders/:id', async (req, res) => {
     try {
       const order = await storage.getOrderById(req.params.id);
       if (!order) {
@@ -106,7 +106,7 @@ export function createRoutes(storage: IStorage) {
     }
   });
 
-  router.post('/api/orders', async (req, res) => {
+  router.post('/orders', async (req, res) => {
     try {
       const validatedData = insertOrderSchema.parse(req.body);
       
@@ -128,7 +128,7 @@ export function createRoutes(storage: IStorage) {
     }
   });
 
-  router.patch('/api/orders/:id/status', async (req, res) => {
+  router.patch('/orders/:id/status', async (req, res) => {
     try {
       const { status } = req.body;
       

@@ -1,14 +1,21 @@
 import { Link, useLocation } from 'wouter';
-import { Home, UtensilsCrossed, ShoppingBag, User, Clock } from 'lucide-react';
+import { Home, UtensilsCrossed, ShoppingBag, User, Clock, LogIn } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function MobileNavigation() {
   const [location] = useLocation();
+  const { user } = useAuth();
 
-  const navItems = [
+  const navItems = user ? [
     { path: '/', icon: Home, label: 'Home' },
     { path: '/meals', icon: UtensilsCrossed, label: 'Meals' },
     { path: '/my-orders', icon: ShoppingBag, label: 'Orders' },
     { path: '/profile', icon: User, label: 'Profile' },
+  ] : [
+    { path: '/', icon: Home, label: 'Home' },
+    { path: '/meals', icon: UtensilsCrossed, label: 'Meals' },
+    { path: '/login', icon: LogIn, label: 'Sign In' },
+    { path: '/register', icon: User, label: 'Sign Up' },
   ];
 
   return (
