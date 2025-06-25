@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 modules = ["nodejs-20"]
 
 [nix]
@@ -10,3 +11,17 @@ externalPort = 3000
 [[ports]]
 localPort = 24678
 externalPort = 80
+=======
+modules = ["nodejs-20"]
+
+[nix]
+channel = "stable-24_05"
+
+[[ports]]
+localPort = 3000
+externalPort = 3000
+
+[[ports]]
+localPort = 24678
+externalPort = 80
+>>>>>>> b5bc9796da4c423799b0e8007187bb38709f903f
