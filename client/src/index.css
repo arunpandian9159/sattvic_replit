@@ -321,18 +321,6 @@ body {
   }
 }
 
-/* Touch Targets - Minimum 44px for mobile */
-.touch-target {
-  min-height: 44px;
-  min-width: 44px;
-}
-
-.btn-primary, .btn-secondary {
-  min-height: 44px;
-  padding: 12px 24px;
-  touch-action: manipulation;
-}
-
 /* Mobile-first responsive design */
 @media (max-width: 639px) {
   .mobile-only { display: block; }

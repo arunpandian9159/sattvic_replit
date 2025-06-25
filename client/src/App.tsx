@@ -10,7 +10,7 @@ import MyOrdersPage from './pages/MyOrdersPage';
 import ProfilePage from './pages/ProfilePage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
-import MobileNavigation from './components/MobileNavigation';
+import TopNavigation from './components/TopNavigation';
 
 function App() {
   return (
@@ -19,6 +19,7 @@ function App() {
         <div className="min-h-screen bg-background">
           <Router>
             <Header />
+            <TopNavigation />
             <main className="pb-20">
               <Switch>
                 <Route path="/" component={HomePage} />
@@ -30,7 +31,6 @@ function App() {
                 <Route path="/register" component={RegisterPage} />
               </Switch>
             </main>
-            <MobileNavigation />
           </Router>
           <Toaster />
         </div>

@@ -1,33 +1,61 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
-import { useQuery, useMutation } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Calendar, Clock, MapPin, Phone, User, ShoppingBag, ArrowLeft } from 'lucide-react';
-import { MealPlan, insertCustomerSchema, insertOrderSchema } from '../../../shared/schema';
-import { apiRequest, queryClient } from '../lib/queryClient';
+import { Calendar, Clock, MapPin, Phone, User, ShoppingBag, ArrowLeft, Mail } from 'lucide-react';
+import { supabase } from '../lib/supabaseClient';
 import { useToast } from '../hooks/use-toast';
+import { LoadingSpinner } from '../components/ui/loading';
 
-interface OrderPageProps {
-  params: { id: string };
-}
-
-const orderFormSchema = insertCustomerSchema.extend({
+const orderFormSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  email: z.string().email('Invalid email'),
+  phone: z.string().optional(),
+  address: z.string().optional(),
+  city: z.string().min(1, 'City is required'),
+  pincode: z.string().min(1, 'Pincode is required'),
   deliveryDate: z.string().min(1, 'Please select a delivery date'),
   specialInstructions: z.string().optional(),
 });
 
 type OrderFormData = z.infer<typeof orderFormSchema>;
 
+interface OrderPageProps {
+  params: { id: string };
+}
+
+interface MealPlan {
+  id: string;
+  name: string;
+  description: string;
+  planType: string;
+  servings: number;
+  price: number;
+  items: string[];
+  isVegetarian: boolean;
+  image_url?: string;
+}
+
 export default function OrderPage({ params }: OrderPageProps) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [mealPlan, setMealPlan] = useState<MealPlan | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const { data: mealPlan, isLoading } = useQuery<MealPlan>({
-    queryKey: ['/api/meal-plans', params.id],
-  });
+  useEffect(() => {
+    const fetchMealPlan = async () => {
+      setIsLoading(true);
+      setError(null);
+      const { data, error } = await supabase.from('meal_plans').select('*').eq('id', params.id).single();
+      if (error) setError(error.message);
+      else setMealPlan(data as MealPlan);
+      setIsLoading(false);
+    };
+    fetchMealPlan();
+  }, [params.id]);
 
   const form = useForm<OrderFormData>({
     resolver: zodResolver(orderFormSchema),
@@ -43,60 +71,45 @@ export default function OrderPage({ params }: OrderPageProps) {
     },
   });
 
-  const createOrderMutation = useMutation({
-    mutationFn: async (orderData: { customer: OrderFormData; order: any }) => {
-      // First create or get customer
-      const customer = await apiRequest('/api/customers', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: orderData.customer.name,
-          email: orderData.customer.email,
-          phone: orderData.customer.phone,
-          address: orderData.customer.address,
-          city: orderData.customer.city,
-          pincode: orderData.customer.pincode,
-        }),
+  const onSubmit = async (data: OrderFormData) => {
+    if (!mealPlan) return;
+    setIsSubmitting(true);
+    try {
+      // Create customer (or upsert by email)
+      const { data: customer, error: customerError } = await supabase
+        .from('customers')
+        .upsert([
+          {
+            name: data.name,
+            email: data.email,
+            phone: data.phone,
+            address: data.address,
+            city: data.city,
+            pincode: data.pincode,
+          }
+        ], { onConflict: 'email' })
+        .select()
+        .single();
+      if (customerError || !customer) throw new Error('Customer creation failed');
+      // Create order
+      const { error: orderError } = await supabase.from('orders').insert({
+        customer_id: customer.id,
+        meal_plan_id: mealPlan.id,
+        delivery_date: data.deliveryDate,
+        total_amount: mealPlan.price,
+        special_instructions: data.specialInstructions,
       });
-
-      // Then create order
-      const order = await apiRequest('/api/orders', {
-        method: 'POST',
-        body: JSON.stringify({
-          customerId: customer.id,
-          mealPlanId: params.id,
-          deliveryDate: orderData.customer.deliveryDate,
-          totalAmount: mealPlan?.price || 0,
-          specialInstructions: orderData.customer.specialInstructions,
-        }),
-      });
-
-      return { customer, order };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+      if (orderError) throw new Error('Order creation failed');
       toast({
         title: 'Order placed successfully!',
         description: 'Your meal will be delivered on the selected date.',
       });
       setLocation('/my-orders');
-    },
-    onError: (error: any) => {
+    } catch (err: any) {
       toast({
         title: 'Order failed',
-        description: error.message || 'Please try again later.',
+        description: err.message || 'Please try again later.',
         variant: 'destructive',
-      });
-    },
-  });
-
-  const onSubmit = async (data: OrderFormData) => {
-    if (!mealPlan) return;
-    
-    setIsSubmitting(true);
-    try {
-      await createOrderMutation.mutateAsync({
-        customer: data,
-        order: {},
       });
     } finally {
       setIsSubmitting(false);
@@ -108,18 +121,15 @@ export default function OrderPage({ params }: OrderPageProps) {
   tomorrow.setDate(tomorrow.getDate() + 1);
   const minDate = tomorrow.toISOString().split('T')[0];
 
+  const getImage = (plan: MealPlan) => {
+    if (plan.image_url) return plan.image_url;
+    return `https://source.unsplash.com/600x400/?indian-food,meal,veg,thali&sig=${plan.id}`;
+  };
+
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background safe-area-top">
-        <div className="p-4">
-          <div className="skeleton h-8 w-32 mb-6"></div>
-          <div className="skeleton h-32 w-full mb-6"></div>
-          <div className="space-y-4">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="skeleton h-12 w-full"></div>
-            ))}
-          </div>
-        </div>
+      <div className="min-h-screen bg-background safe-area-top flex items-center justify-center animate-fade-in">
+        <LoadingSpinner size="lg" />
       </div>
     );
   }
@@ -129,192 +139,100 @@ export default function OrderPage({ params }: OrderPageProps) {
       <div className="min-h-screen bg-background safe-area-top flex items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold text-foreground mb-2">Meal plan not found</h2>
-          <button
-            onClick={() => setLocation('/meals')}
-            className="btn-primary"
-          >
-            Browse Meals
-          </button>
+          <button onClick={() => setLocation('/meals')} className="btn-primary">Browse Meals</button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background safe-area-top">
+    <div className="min-h-screen bg-background safe-area-top animate-fade-in">
       {/* Header */}
       <header className="bg-card border-b px-4 py-4">
         <div className="flex items-center gap-3 mb-4">
-          <button
-            onClick={() => setLocation('/meals')}
-            className="p-2 -ml-2 hover:bg-muted rounded-lg"
-          >
+          <button onClick={() => setLocation('/meals')} className="p-2 -ml-2 hover:bg-muted rounded-lg">
             <ArrowLeft className="w-5 h-5 text-foreground" />
           </button>
           <h1 className="text-xl font-semibold text-foreground">Place Order</h1>
         </div>
       </header>
-
-      <div className="px-4 py-6 pb-24">
+      <div className="px-4 py-6 pb-24 max-w-2xl mx-auto">
         {/* Meal Plan Summary */}
-        <div className="bg-card rounded-lg border p-4 mb-6">
-          <h2 className="text-lg font-semibold text-foreground mb-2">{mealPlan.name}</h2>
-          <p className="text-muted-foreground text-sm mb-3">{mealPlan.description}</p>
-          <div className="flex items-center justify-between">
-            <span className="text-2xl font-bold text-primary">₹{mealPlan.price}</span>
-            <span className="bg-primary/10 text-primary px-3 py-1 rounded-full text-sm font-medium">
-              {mealPlan.planType}
-            </span>
+        <div className="bg-card rounded-lg border p-4 mb-6 animate-slide-up">
+          <div className="flex gap-4 items-center">
+            <div className="w-32 h-32 rounded-lg overflow-hidden flex-shrink-0">
+              <img src={getImage(mealPlan)} alt={mealPlan.name} className="w-full h-full object-cover" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-lg font-semibold text-foreground mb-2">{mealPlan.name}</h2>
+              <p className="text-muted-foreground text-sm mb-3">{mealPlan.description}</p>
+              <div className="flex items-center justify-between">
+                <span className="text-2xl font-bold text-primary">₹{mealPlan.price}</span>
+                <span className="bg-primary/10 text-primary px-3 py-1 rounded-full text-sm font-medium">
+                  {mealPlan.planType}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
-
         {/* Order Form */}
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          {/* Personal Information */}
-          <div className="bg-card rounded-lg border p-4">
-            <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
-              <User className="w-5 h-5" />
-              Personal Information
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Full Name *
-                </label>
-                <input
-                  {...form.register('name')}
-                  type="text"
-                  className="w-full px-3 py-3 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="Enter your full name"
-                />
-                {form.formState.errors.name && (
-                  <p className="text-destructive text-sm mt-1">{form.formState.errors.name.message}</p>
-                )}
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 animate-fade-in">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Full Name *</label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <input {...form.register('name')} type="text" className="input-field pl-10" placeholder="Your Name" disabled={isSubmitting} />
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
-                    Email *
-                  </label>
-                  <input
-                    {...form.register('email')}
-                    type="email"
-                    className="w-full px-3 py-3 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                    placeholder="your@email.com"
-                  />
-                  {form.formState.errors.email && (
-                    <p className="text-destructive text-sm mt-1">{form.formState.errors.email.message}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
-                    Phone Number *
-                  </label>
-                  <input
-                    {...form.register('phone')}
-                    type="tel"
-                    className="w-full px-3 py-3 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                    placeholder="9500261133"
-                  />
-                  {form.formState.errors.phone && (
-                    <p className="text-destructive text-sm mt-1">{form.formState.errors.phone.message}</p>
-                  )}
-                </div>
+              {form.formState.errors.name && <p className="text-destructive text-sm mt-1">{form.formState.errors.name.message}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Email Address *</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <input {...form.register('email')} type="email" className="input-field pl-10" placeholder="you@email.com" disabled={isSubmitting} />
+              </div>
+              {form.formState.errors.email && <p className="text-destructive text-sm mt-1">{form.formState.errors.email.message}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Phone</label>
+              <div className="relative">
+                <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <input {...form.register('phone')} type="tel" className="input-field pl-10" placeholder="+91 9876543210" disabled={isSubmitting} />
               </div>
             </div>
-          </div>
-
-          {/* Delivery Information */}
-          <div className="bg-card rounded-lg border p-4">
-            <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
-              <MapPin className="w-5 h-5" />
-              Delivery Information
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Delivery Address *
-                </label>
-                <textarea
-                  {...form.register('address')}
-                  className="w-full px-3 py-3 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary h-20"
-                  placeholder="Enter your complete delivery address"
-                />
-                {form.formState.errors.address && (
-                  <p className="text-destructive text-sm mt-1">{form.formState.errors.address.message}</p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
-                    City *
-                  </label>
-                  <input
-                    {...form.register('city')}
-                    type="text"
-                    className="w-full px-3 py-3 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                    placeholder="Pondicherry"
-                  />
-                  {form.formState.errors.city && (
-                    <p className="text-destructive text-sm mt-1">{form.formState.errors.city.message}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
-                    Pincode *
-                  </label>
-                  <input
-                    {...form.register('pincode')}
-                    type="text"
-                    className="w-full px-3 py-3 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                    placeholder="605001"
-                  />
-                  {form.formState.errors.pincode && (
-                    <p className="text-destructive text-sm mt-1">{form.formState.errors.pincode.message}</p>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Delivery Date *
-                </label>
-                <input
-                  {...form.register('deliveryDate')}
-                  type="date"
-                  min={minDate}
-                  className="w-full px-3 py-3 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-                {form.formState.errors.deliveryDate && (
-                  <p className="text-destructive text-sm mt-1">{form.formState.errors.deliveryDate.message}</p>
-                )}
-                <p className="text-xs text-muted-foreground mt-1">
-                  Orders must be placed one day in advance
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Special Instructions (Optional)
-                </label>
-                <textarea
-                  {...form.register('specialInstructions')}
-                  className="w-full px-3 py-3 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary h-16"
-                  placeholder="Any special delivery instructions..."
-                />
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Delivery Address</label>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-3 w-5 h-5 text-muted-foreground" />
+                <textarea {...form.register('address')} rows={2} className="input-field pl-10 resize-none" placeholder="Enter your delivery address" disabled={isSubmitting} />
               </div>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">City *</label>
+              <input {...form.register('city')} type="text" className="input-field" placeholder="City" disabled={isSubmitting} />
+              {form.formState.errors.city && <p className="text-destructive text-sm mt-1">{form.formState.errors.city.message}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Pincode *</label>
+              <input {...form.register('pincode')} type="text" className="input-field" placeholder="Pincode" disabled={isSubmitting} />
+              {form.formState.errors.pincode && <p className="text-destructive text-sm mt-1">{form.formState.errors.pincode.message}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Delivery Date *</label>
+              <input {...form.register('deliveryDate')} type="date" min={minDate} className="input-field" disabled={isSubmitting} />
+              {form.formState.errors.deliveryDate && <p className="text-destructive text-sm mt-1">{form.formState.errors.deliveryDate.message}</p>}
+              <p className="text-xs text-muted-foreground mt-1">Orders must be placed one day in advance</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Special Instructions (Optional)</label>
+              <textarea {...form.register('specialInstructions')} className="input-field resize-none" placeholder="Any special delivery instructions..." disabled={isSubmitting} />
+            </div>
           </div>
-
           {/* Order Summary */}
-          <div className="bg-primary/5 rounded-lg border p-4">
+          <div className="bg-muted/20 rounded-lg p-4 mt-4">
             <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
-              <ShoppingBag className="w-5 h-5" />
-              Order Summary
+              <ShoppingBag className="w-5 h-5" /> Order Summary
             </h3>
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
@@ -336,14 +254,9 @@ export default function OrderPage({ params }: OrderPageProps) {
               </div>
             </div>
           </div>
-
           {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isSubmitting || createOrderMutation.isPending}
-            className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSubmitting || createOrderMutation.isPending ? 'Placing Order...' : 'Place Order'}
+          <button type="submit" disabled={isSubmitting} className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed mt-6 flex items-center justify-center gap-2">
+            {isSubmitting ? <LoadingSpinner size="sm" /> : 'Place Order'}
           </button>
         </form>
       </div>

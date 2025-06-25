@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '../lib/supabaseClient';
 
 interface User {
   id: string;
@@ -6,6 +7,18 @@ interface User {
   email: string;
   phone?: string;
   address?: string;
+  city?: string;
+  pincode?: string;
+}
+
+interface RegisterData {
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  pincode?: string;
 }
 
 interface AuthContextType {
@@ -17,21 +30,11 @@ interface AuthContextType {
   updateProfile: (userData: Partial<User>) => Promise<boolean>;
 }
 
-interface RegisterData {
-  name: string;
-  email: string;
-  password: string;
-  phone?: string;
-  address?: string;
-}
-
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
   return context;
 }
 
@@ -45,38 +48,42 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Check for existing session on mount
   useEffect(() => {
-    const savedUser = localStorage.getItem('sattvic_user');
-    if (savedUser) {
-      try {
-        setUser(JSON.parse(savedUser));
-      } catch (error) {
-        console.error('Error parsing saved user:', error);
-        localStorage.removeItem('sattvic_user');
+    const getSession = async () => {
+      setIsLoading(true);
+      const { data, error } = await supabase.auth.getSession();
+      if (data.session && data.session.user) {
+        const { id, email, user_metadata } = data.session.user;
+        setUser({
+          id,
+          email: email || '',
+          name: user_metadata?.name || '',
+          phone: user_metadata?.phone,
+          address: user_metadata?.address,
+          city: user_metadata?.city,
+          pincode: user_metadata?.pincode,
+        });
+      } else {
+        setUser(null);
       }
-    }
-    setIsLoading(false);
+      setIsLoading(false);
+    };
+    getSession();
+    // Listen for auth state changes
+    const { data: listener } = supabase.auth.onAuthStateChange(() => {
+      getSession();
+    });
+    return () => {
+      listener?.subscription.unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      
-      // Mock authentication - in real app, this would be an API call
-      if (email && password.length >= 6) {
-        const mockUser: User = {
-          id: Date.now().toString(),
-          name: email.split('@')[0].replace(/[^a-zA-Z]/g, ''),
-          email: email,
-          phone: '+91 9500261133',
-          address: 'Chennai, Tamil Nadu'
-        };
-        
-        setUser(mockUser);
-        localStorage.setItem('sattvic_user', JSON.stringify(mockUser));
-        return true;
-      }
-      
-      return false;
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error || !data.session) return false;
+      // User state will be set by useEffect
+      return true;
     } catch (error) {
       console.error('Login error:', error);
       return false;
@@ -86,25 +93,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const register = async (userData: RegisterData): Promise<boolean> => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      
-      // Mock registration - in real app, this would be an API call
-      if (userData.email && userData.password.length >= 6 && userData.name) {
-        const newUser: User = {
-          id: Date.now().toString(),
-          name: userData.name,
-          email: userData.email,
-          phone: userData.phone,
-          address: userData.address
-        };
-        
-        setUser(newUser);
-        localStorage.setItem('sattvic_user', JSON.stringify(newUser));
-        return true;
-      }
-      
-      return false;
+      const { data, error } = await supabase.auth.signUp({
+        email: userData.email,
+        password: userData.password,
+        options: {
+          data: {
+            name: userData.name,
+            phone: userData.phone,
+            address: userData.address,
+            city: userData.city,
+            pincode: userData.pincode,
+          },
+        },
+      });
+      if (error || !data.user) return false;
+      // User state will be set by useEffect
+      return true;
     } catch (error) {
       console.error('Registration error:', error);
       return false;
@@ -113,18 +119,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
-    localStorage.removeItem('sattvic_user');
   };
 
   const updateProfile = async (userData: Partial<User>): Promise<boolean> => {
+    if (!user) return false;
     try {
-      if (!user) return false;
-      
-      const updatedUser = { ...user, ...userData };
-      setUser(updatedUser);
-      localStorage.setItem('sattvic_user', JSON.stringify(updatedUser));
+      const { error } = await supabase.auth.updateUser({
+        data: userData,
+      });
+      if (error) return false;
+      setUser({ ...user, ...userData });
       return true;
     } catch (error) {
       console.error('Profile update error:', error);
@@ -138,14 +145,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     login,
     register,
     logout,
-    updateProfile
+    updateProfile,
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export default AuthContext;
